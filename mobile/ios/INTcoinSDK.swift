@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2025 The INTcoin Core developers
+// Copyright (c) 2024-2026 The INTcoin Core developers
 // Distributed under the MIT software license
 
 import Foundation
