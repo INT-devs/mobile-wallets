@@ -180,29 +180,31 @@ High-level wallet API:
 
 ### iOS SwiftUI App
 
-Complete wallet app demonstrating:
-- Wallet creation/opening with password
-- Balance display (confirmed/unconfirmed)
-- Transaction history
-- Send/receive interface
-- Blockchain sync progress
-- QR code generation
-- Biometric authentication
+Complete wallet app with INTcoin dark theme branding:
+- **Wallet Setup**: Create/open wallet with password, 24-word mnemonic backup
+- **Balance Display**: Confirmed/unconfirmed with gradient card design
+- **Transaction History**: Full history with confirmation status icons
+- **Send/Receive**: QR code generation, address validation, fee display
+- **Blockchain Sync**: Animated progress indicator
+- **Settings**: Network status, PQC security info, backup options
+- **Theme**: INTcoin dark theme (#0a0f1e, #3399ff, #10b75f)
 
 **Source**: [ios/ExampleApp.swift](ios/ExampleApp.swift)
+**Theme**: [ios/INTcoinTheme.swift](ios/INTcoinTheme.swift)
 
 ### Android Jetpack Compose App
 
-Modern Material Design 3 wallet:
-- Wallet setup and management
-- Real-time balance updates
-- Transaction list with status
-- Send/receive screens
-- QR scanner integration
-- Fingerprint/face unlock
-- Dark mode support
+Modern Material Design 3 wallet with INTcoin branding:
+- **Wallet Setup**: Create/open wallet, mnemonic grid display
+- **Main Screen**: Bottom navigation (Wallet, Activity, Settings)
+- **Balance Card**: Gradient background, confirmed/pending breakdown
+- **Quick Stats**: Received/Sent/Pending transaction counters
+- **Send/Receive**: Modal bottom sheets, QR generation with ZXing
+- **Settings**: Network status, Dilithium5/NIST Level 5 security badges
+- **Theme**: INTcoin dark theme matching desktop Qt wallet
 
-**Coming Soon**: Example app implementation
+**Source**: [android/src/main/java/org/intcoin/wallet/ui/INTcoinWalletApp.kt](android/src/main/java/org/intcoin/wallet/ui/INTcoinWalletApp.kt)
+**Theme**: [android/src/main/java/org/intcoin/wallet/ui/theme/INTcoinTheme.kt](android/src/main/java/org/intcoin/wallet/ui/theme/INTcoinTheme.kt)
 
 ## Security Best Practices
 
@@ -388,7 +390,7 @@ Key classes:
 
 ## Roadmap
 
-### v1.2.0-beta (Current)
+### v1.2.0 (Current)
 - ✅ SPV client implementation
 - ✅ Bloom filter support
 - ✅ Mobile RPC API
@@ -396,6 +398,11 @@ Key classes:
 - ✅ Android Kotlin SDK
 - ✅ QR code support
 - ✅ Biometric authentication
+- ✅ iOS SwiftUI wallet UI (INTcoin dark theme)
+- ✅ Android Jetpack Compose wallet UI (Material 3)
+- ✅ Mnemonic backup flow (24-word display)
+- ✅ Transaction history with confirmation status
+- ✅ Settings screen with PQC security info
 
 ### v1.3.0 (Q1 2026)
 - [ ] Hardware wallet integration (Ledger, Trezor)
