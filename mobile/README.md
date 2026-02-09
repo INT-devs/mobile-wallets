@@ -115,11 +115,10 @@ val txHash = sdk.sendTransaction(
 
 ## Currency Units
 
-INTcoin uses **INTS** as the base unit:
+INTcoin uses **INTS** as the base unit (smallest indivisible unit):
 
 - **1 INT = 1,000,000 INTS**
 - Minimum amount: **1 INTS** (0.000001 INT)
-- Similar to Bitcoin's satoshis
 
 ```
 Amount (INT)  |  Amount (INTS)

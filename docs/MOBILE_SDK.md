@@ -249,7 +249,7 @@ let tx = try wallet.send(
 let customTx = try wallet.send(
     to: address,
     amount: 2.0,
-    feeRate: FeeRate.custom(satoshisPerByte: 100)
+    feeRate: FeeRate.custom(intsPerByte: 100)
 )
 
 // Send all (sweep)
@@ -462,7 +462,7 @@ val tx = wallet.send(
 val customTx = wallet.send(
     to = address,
     amount = 2.0,
-    feeRate = FeeRate.custom(satoshisPerByte = 100)
+    feeRate = FeeRate.custom(intsPerByte = 100)
 )
 
 // Send all

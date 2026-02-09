@@ -73,7 +73,7 @@ sdk.close()
 
 ## Currency Units
 
-INTcoin uses **INTS** as the base unit (similar to Bitcoin's satoshis):
+INTcoin uses **INTS** as the base unit (smallest indivisible unit):
 
 - 1 INT = 1,000,000 INTS
 - Minimum amount: 1 INTS (0.000001 INT)

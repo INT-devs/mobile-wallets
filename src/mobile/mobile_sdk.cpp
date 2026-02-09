@@ -4,9 +4,11 @@
 #include <intcoin/mobile_sdk.h>
 #include <intcoin/crypto.h>
 #include <intcoin/util.h>
+#include <intcoin/bech32.h>
 
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 
@@ -52,21 +54,27 @@ Result<std::string> MobileSDK::CreateWallet(const std::string& mnemonic,
 
     // Create wallet instance with config
     wallet::WalletConfig wallet_config;
-    // TODO: Set wallet_config.wallet_path from config_.wallet_path when available
+    wallet_config.wallet_path = config_.wallet_path + "/wallet.dat";
+    wallet_config.network = config_.network;
     wallet_ = std::make_shared<wallet::Wallet>(wallet_config);
 
     // Generate or use provided mnemonic
     std::string wallet_mnemonic = mnemonic;
     if (wallet_mnemonic.empty()) {
-        // Generate new BIP39 mnemonic
-        // TODO: Integrate with wallet BIP39 implementation
-        wallet_mnemonic = "TODO: Generate BIP39 mnemonic";
-        LogF(LogLevel::INFO, "Mobile SDK: Generated new mnemonic");
+        // Generate new BIP39 mnemonic (24 words for maximum security)
+        auto mnemonic_result = Mnemonic::Generate(24);
+        if (mnemonic_result.IsError()) {
+            return Result<std::string>::Error("Failed to generate mnemonic: " + mnemonic_result.error);
+        }
+        wallet_mnemonic = mnemonic_result.GetValue().ToString();
+        LogF(LogLevel::INFO, "Mobile SDK: Generated new 24-word mnemonic");
     }
 
-    // Initialize wallet with mnemonic and password
-    // TODO: Integrate with wallet initialization
-    // For now, create basic wallet structure
+    // Initialize wallet with mnemonic
+    auto init_result = wallet_->CreateFromMnemonic(wallet_mnemonic, password);
+    if (init_result.IsError()) {
+        return Result<std::string>::Error("Failed to create wallet: " + init_result.error);
+    }
 
     wallet_open_ = true;
 
@@ -89,11 +97,16 @@ Result<void> MobileSDK::OpenWallet(const std::string& password) {
 
     // Load existing wallet
     wallet::WalletConfig wallet_config;
-    // TODO: Set wallet_config.wallet_path from config_.wallet_path when available
+    wallet_config.wallet_path = config_.wallet_path + "/wallet.dat";
+    wallet_config.network = config_.network;
     wallet_ = std::make_shared<wallet::Wallet>(wallet_config);
 
-    // TODO: Decrypt and verify password
-    // TODO: Load wallet state from storage
+    // Load and decrypt wallet with password
+    auto load_result = wallet_->Load(password);
+    if (load_result.IsError()) {
+        wallet_.reset();
+        return Result<void>::Error("Failed to open wallet: " + load_result.error);
+    }
 
     wallet_open_ = true;
 
@@ -139,13 +152,30 @@ Result<std::vector<uint8_t>> MobileSDK::BackupWallet() {
         return Result<std::vector<uint8_t>>::Error("Wallet not open");
     }
 
-    // TODO: Implement wallet backup
-    // Should encrypt wallet data including keys and metadata
-
     LogF(LogLevel::INFO, "Mobile SDK: Creating wallet backup");
 
-    std::vector<uint8_t> backup_data;
-    // Placeholder backup
+    // Create encrypted backup using wallet's backup functionality
+    std::string backup_path = config_.wallet_path + "/backup_temp.dat";
+    auto backup_result = wallet_->BackupWallet(backup_path);
+    if (backup_result.IsError()) {
+        return Result<std::vector<uint8_t>>::Error("Backup failed: " + backup_result.error);
+    }
+
+    // Read the backup file into memory
+    std::ifstream backup_file(backup_path, std::ios::binary);
+    if (!backup_file) {
+        return Result<std::vector<uint8_t>>::Error("Failed to read backup file");
+    }
+
+    std::vector<uint8_t> backup_data((std::istreambuf_iterator<char>(backup_file)),
+                                      std::istreambuf_iterator<char>());
+    backup_file.close();
+
+    // Remove temporary backup file
+    std::remove(backup_path.c_str());
+
+    LogF(LogLevel::INFO, "Mobile SDK: Created wallet backup (%zu bytes)", backup_data.size());
+
     return Result<std::vector<uint8_t>>::Ok(backup_data);
 }
 
@@ -155,10 +185,41 @@ Result<void> MobileSDK::RestoreWallet(const std::vector<uint8_t>& backup_data,
         return Result<void>::Error("Wallet already open");
     }
 
-    // TODO: Implement wallet restore
-    // Should decrypt and validate backup data
-
     LogF(LogLevel::INFO, "Mobile SDK: Restoring wallet from backup");
+
+    // Write backup data to temporary file
+    std::string backup_path = config_.wallet_path + "/restore_temp.dat";
+    std::ofstream backup_file(backup_path, std::ios::binary);
+    if (!backup_file) {
+        return Result<void>::Error("Failed to write backup file");
+    }
+    backup_file.write(reinterpret_cast<const char*>(backup_data.data()), backup_data.size());
+    backup_file.close();
+
+    // Create wallet instance and restore from backup
+    wallet::WalletConfig wallet_config;
+    wallet_config.wallet_path = config_.wallet_path + "/wallet.dat";
+    wallet_config.network = config_.network;
+    wallet_ = std::make_shared<wallet::Wallet>(wallet_config);
+
+    auto restore_result = wallet_->RestoreFromBackup(backup_path);
+    if (restore_result.IsError()) {
+        wallet_.reset();
+        std::remove(backup_path.c_str());
+        return Result<void>::Error("Restore failed: " + restore_result.error);
+    }
+
+    // Remove temporary file
+    std::remove(backup_path.c_str());
+
+    wallet_open_ = true;
+
+    // Update bloom filter
+    if (config_.enable_spv && spv_client_) {
+        UpdateBloomFilter();
+    }
+
+    LogF(LogLevel::INFO, "Mobile SDK: Wallet restored successfully");
 
     return Result<void>::Ok();
 }
@@ -172,13 +233,16 @@ Result<std::string> MobileSDK::GetNewAddress() {
         return Result<std::string>::Error("Wallet not open");
     }
 
-    // TODO: Generate new address from wallet
-    // Should use BIP32/44 derivation path: m/44'/2210'/0'/0/n
+    // Generate new address from wallet using BIP32/44 derivation path: m/44'/2210'/0'/0/n
+    auto addr_result = wallet_->GetNewAddress();
+    if (addr_result.IsError()) {
+        return Result<std::string>::Error("Failed to generate address: " + addr_result.error);
+    }
 
-    std::string address = "int1q...";  // Placeholder
+    std::string address = *addr_result.value;
     LogF(LogLevel::DEBUG, "Mobile SDK: Generated new address: %s", address.c_str());
 
-    // Add to bloom filter
+    // Add to bloom filter for SPV tracking
     if (config_.enable_spv && spv_client_) {
         spv_client_->AddWatchAddress(address);
     }
@@ -191,10 +255,23 @@ Result<std::string> MobileSDK::GetCurrentAddress() {
         return Result<std::string>::Error("Wallet not open");
     }
 
-    // TODO: Get current receiving address from wallet
-    std::string address = "int1q...";  // Placeholder
+    // Get current receiving address from wallet
+    auto addrs_result = wallet_->GetAddresses();
+    if (addrs_result.IsError() || addrs_result.value->empty()) {
+        // Generate a new one if none exists
+        return GetNewAddress();
+    }
 
-    return Result<std::string>::Ok(address);
+    // Return the most recent external (receiving) address
+    const auto& addresses = *addrs_result.value;
+    for (auto it = addresses.rbegin(); it != addresses.rend(); ++it) {
+        if (!it->is_change) {
+            return Result<std::string>::Ok(it->address);
+        }
+    }
+
+    // Fallback to generating a new address
+    return GetNewAddress();
 }
 
 std::vector<std::string> MobileSDK::GetAllAddresses() {
@@ -202,21 +279,37 @@ std::vector<std::string> MobileSDK::GetAllAddresses() {
         return {};
     }
 
-    // TODO: Get all addresses from wallet
+    // Get all addresses from wallet
     std::vector<std::string> addresses;
+
+    auto addrs_result = wallet_->GetAddresses();
+    if (addrs_result.IsOk()) {
+        for (const auto& addr_info : *addrs_result.value) {
+            addresses.push_back(addr_info.address);
+        }
+    }
 
     return addresses;
 }
 
 bool MobileSDK::ValidateAddress(const std::string& address) {
-    // INTcoin uses Bech32 format: int1...
-    if (address.size() < 4 || address.substr(0, 4) != "int1") {
+    // INTcoin uses Bech32 format: int1... (mainnet) or tint1... (testnet)
+    bool is_mainnet = address.size() >= 4 && address.substr(0, 4) == "int1";
+    bool is_testnet = address.size() >= 5 && address.substr(0, 5) == "tint1";
+
+    if (!is_mainnet && !is_testnet) {
         return false;
     }
 
-    // TODO: Implement full Bech32 validation
-    // For now, basic check
-    return address.size() >= 42 && address.size() <= 62;
+    // Use wallet's Bech32 validation
+    auto decode_result = Bech32::Decode(address);
+    if (decode_result.IsError()) {
+        return false;
+    }
+
+    // Verify expected data length for Dilithium5 pubkey hash (32 bytes)
+    const auto& decoded = *decode_result.value;
+    return decoded.data.size() >= 32;
 }
 
 // ========================================
@@ -296,16 +389,21 @@ Result<Transaction> MobileSDK::CreateTransaction(const std::string& to_address,
         fee_rate = fee_result.GetValue().fee_rate;
     }
 
-    // TODO: Implement transaction creation
-    // 1. Select UTXOs (coin selection algorithm)
-    // 2. Create transaction inputs
-    // 3. Create transaction outputs (recipient + change)
-    // 4. Calculate fee based on transaction size
-    // 5. Sign transaction with wallet keys
+    // Create transaction using wallet's coin selection and signing
+    wallet::SendRequest send_request;
+    send_request.recipient_address = to_address;
+    send_request.amount = amount_ints;
+    send_request.fee_rate = fee_rate;
+    send_request.subtract_fee_from_amount = false;
 
-    Transaction tx;
-    LogF(LogLevel::INFO, "Mobile SDK: Created transaction to %s for %llu INTS",
-         to_address.c_str(), amount_ints);
+    auto tx_result = wallet_->CreateTransaction(send_request);
+    if (tx_result.IsError()) {
+        return Result<Transaction>::Error("Transaction creation failed: " + tx_result.error);
+    }
+
+    Transaction tx = *tx_result.value;
+    LogF(LogLevel::INFO, "Mobile SDK: Created transaction to %s for %llu INTS (fee: %llu)",
+         to_address.c_str(), amount_ints, tx.GetFee());
 
     return Result<Transaction>::Ok(tx);
 }
@@ -369,10 +467,31 @@ Result<HistoryResponse> MobileSDK::GetTransactionHistory(uint32_t limit, uint32_
 }
 
 Result<HistoryEntry> MobileSDK::GetTransaction(const uint256& tx_hash) {
-    // TODO: Implement single transaction lookup
-    // For now, search through history
+    if (!wallet_open_) {
+        return Result<HistoryEntry>::Error("Wallet not open");
+    }
 
-    auto history_result = GetTransactionHistory(100, 0);
+    // Look up transaction directly in wallet
+    auto tx_result = wallet_->GetTransaction(tx_hash);
+    if (tx_result.IsOk()) {
+        const auto& tx_info = *tx_result.value;
+        HistoryEntry entry;
+        entry.tx_hash = tx_info.tx_hash;
+        entry.amount_ints = tx_info.amount;
+        entry.confirmations = 0;
+        if (tx_info.block_height > 0 && spv_client_) {
+            uint64_t current_height = spv_client_->GetBestHeight();
+            if (current_height >= tx_info.block_height) {
+                entry.confirmations = static_cast<uint32_t>(current_height - tx_info.block_height + 1);
+            }
+        }
+        entry.timestamp = tx_info.timestamp;
+        entry.is_incoming = tx_info.is_incoming;
+        return Result<HistoryEntry>::Ok(entry);
+    }
+
+    // Fallback: search through history
+    auto history_result = GetTransactionHistory(1000, 0);
     if (history_result.IsError()) {
         return Result<HistoryEntry>::Error(history_result.error);
     }
@@ -415,8 +534,8 @@ Result<void> MobileSDK::StartSync() {
         return result;
     }
 
-    // Start progress update thread
-    // TODO: Implement periodic progress callback
+    // Progress updates are handled by the SPV client's sync loop
+    // The sync_callback_ will be invoked by UpdateSyncProgress() when sync events occur
 
     return Result<void>::Ok();
 }
@@ -450,7 +569,7 @@ SyncProgress MobileSDK::GetSyncProgress() const {
     }
 
     progress.current_height = spv_client_->GetBestHeight();
-    progress.target_height = progress.current_height;  // TODO: Get from network
+    progress.target_height = spv_client_->GetNetworkBestHeight();
     progress.progress = spv_client_->GetSyncProgress();
     progress.is_syncing = spv_client_->IsSyncing();
 
@@ -511,7 +630,35 @@ Result<MobileSDK::PaymentDetails> MobileSDK::ParsePaymentURI(const std::string& 
     // Parse parameters
     if (param_start != std::string::npos) {
         std::string params = uri.substr(param_start + 1);
-        // TODO: Implement parameter parsing (amount, label, message)
+
+        // Parse key=value pairs separated by &
+        size_t pos = 0;
+        while (pos < params.size()) {
+            size_t amp_pos = params.find('&', pos);
+            std::string param = (amp_pos == std::string::npos)
+                               ? params.substr(pos)
+                               : params.substr(pos, amp_pos - pos);
+
+            size_t eq_pos = param.find('=');
+            if (eq_pos != std::string::npos) {
+                std::string key = param.substr(0, eq_pos);
+                std::string value = param.substr(eq_pos + 1);
+
+                if (key == "amount") {
+                    auto amount_result = ParseINTAmount(value);
+                    if (amount_result.IsOk()) {
+                        details.amount_ints = *amount_result.value;
+                    }
+                } else if (key == "label") {
+                    details.label = value;
+                } else if (key == "message") {
+                    details.message = value;
+                }
+            }
+
+            if (amp_pos == std::string::npos) break;
+            pos = amp_pos + 1;
+        }
     }
 
     return Result<PaymentDetails>::Ok(details);
@@ -598,10 +745,16 @@ void MobileSDK::UpdateBloomFilter() {
     // Add all wallet addresses to filter
     auto addresses = GetAllAddresses();
     for (const auto& address : addresses) {
-        // TODO: Convert address to script pubkey and add to filter
-        // For now, add address as-is
-        std::vector<uint8_t> addr_data(address.begin(), address.end());
-        filter.Add(addr_data);
+        // Decode Bech32 address to get the pubkey hash
+        auto decode_result = Bech32::Decode(address);
+        if (decode_result.IsOk()) {
+            // Add the pubkey hash (script pubkey data) to bloom filter
+            filter.Add(decode_result.value->data);
+        } else {
+            // Fallback: add raw address string
+            std::vector<uint8_t> addr_data(address.begin(), address.end());
+            filter.Add(addr_data);
+        }
     }
 
     spv_client_->SetBloomFilter(filter);
